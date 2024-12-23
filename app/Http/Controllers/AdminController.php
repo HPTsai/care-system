@@ -34,19 +34,6 @@ class AdminController extends Controller
         }
          return response()->json(["message"=>"你所尋找的民眾資料找不到"],404);
     }
-    //以下為新增一筆督導端身份資料
-    public function store()
-    { 
-        if(auth()->user()->role ==2){
-            DB::table("admins")->insert(['name'=>auth()->user()->name,
-                                         'account'=>auth()->user()->account,
-                                         'password'=>auth()->user()->password,
-                                         'create_date'=>now(),'modified_date'=>now()]);
-            return response()->json(["message"=>"督導端資料已建立！"],201);     
-        }else{
-            return response("你使用的身分非督導端，不得建立督導端資料！",401);
-        }
-    }
     //以下為查詢所有督導端身份資料
     public function index()
     { 
@@ -84,15 +71,5 @@ class AdminController extends Controller
             return response()->json($data,200);
         }
          return response()->json(["message"=>"你所尋找的民眾資料id為 {$id} 找不到"],404);
-    }
-    //待新增
-    public function update(Request $request, string $id)
-    {
-        
-    }
-    //待新增
-    public function destroy(string $id)
-    {
-      
     }
 }

@@ -5,228 +5,399 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 class ApplicationController extends Controller
 {
     public function index()
     {
-        $application_datas = DB::select('select id,user_id,attendee_id,careitem_id,relation,is_commissioned,company_id,alternate_company_id from applications where user_id = ?',[auth()->user()->id]);
-        if(count($application_datas) == 0){
-            return response()->json(["message"=>"你所尋找的需求表資料找不到"],404);
+        $db_application_datas = DB::select('select id,user_id,user_phone,user_name,relation,status,patient_id,careitem_id,qualification_id,contract_id,carer_id,selected_vendor_id,service_id from applications where user_id = ?',[auth()->user()->id]);
+        if(count($db_application_datas) == 0){
+            return response()->json([],200);
             
         }
-        foreach ($application_datas as $key => $value){
-            $attendee_data = DB::select("select name,birth_date,address,phone,language,mobility,CDR from attendees where id = ?",[$value->attendee_id])[0];
-            $value->name =$attendee_data->name;
-            $value->birth_date =$attendee_data->birth_date;
-            $value->address =$attendee_data->address;
-            $value->phone =$attendee_data->phone;
-            $value->language =$attendee_data->language;
-            $value->mobility =$attendee_data->mobility;
-            $value->CDR =$attendee_data->CDR;
-            $careitem_data = DB::select("select daily_care,is_meal_pre,is_accom_pre,
-            is_safecare_pre,is_workcare_pre,is_activity_pre,is_medicine_pre,other,service_time,start_date,start_time,use_time,times from care_items where id = ?",[$value->careitem_id])[0];
-            $value->daily_care =$careitem_data->daily_care;
-            $value->is_meal_pre =$careitem_data->is_meal_pre;
-            $value->is_accom_pre =$careitem_data->is_accom_pre;
-            $value->is_safecare_pre =$careitem_data->is_safecare_pre;
-            $value->is_workcare_pre =$careitem_data->is_workcare_pre;
-            $value->is_activity_pre =$careitem_data->is_activity_pre;
-            $value->is_medicine_pre =$careitem_data->is_medicine_pre;
-            $value->other =$careitem_data->other;
-            $value->service_time =$careitem_data->service_time;
-            $value->start_date =$careitem_data->start_date;
-            $value->start_time =$careitem_data->start_time;
-            $value->use_time =$careitem_data->use_time;
-            $value->times =$careitem_data->times;
+        $application_datas = [];
+        foreach ($db_application_datas as $key => $value){
+            $application_data = [];
+            $application_data["id"] =$value->id; 
+            $patient_data = DB::select("select name,gender,birth_date,address_city,address_district,address_detail,phone,languages,indigenous_type,mobility,diagnosed,level,CDR from patients where id = ?",[$value->patient_id])[0];
+            $patient_data->diagnosed = (bool)$patient_data->diagnosed;
+            $application_data["patient"] = $patient_data;
+            $application=[];
+            $application["user_name"]=$value->user_name;
+            $application["user_phone"]=$value->user_phone;
+            $application["relation"]=$value->relation;
+            $application["status"]=$value->status;
+            $application["qualification_id"]=$value->qualification_id;
+            $application["contract_id"]=$value->contract_id;
+            $application["carer_id"]=$value->carer_id;
+            $application["selected_vendor_id"]=$value->selected_vendor_id;
+            $application["service_id"]=$value->service_id;
+            $application_data["application"] = $application;
+            $careitem_data = DB::select("select daily_care,safety,outdoor,
+            medication,other,duration,start_date,start_time,frequency,period,frequency_note,period_note,healthcertificate_answer,healthcertificate_files from care_items where id = ?",[$value->careitem_id])[0];
+            $careitem_data->safety=(bool)$careitem_data->safety;
+            $careitem_data->outdoor=(bool)$careitem_data->outdoor;
+            $careitem_data->medication=(bool)$careitem_data->medication;
+            $careitem_data->safety=(bool)$careitem_data->safety;
+            $application_data["care_item"] = $careitem_data;
+            array_push($application_datas,$application_data);
         }
          return response()->json($application_datas,200);
     }
     public function store(Request $request)
-    { 
-        $messages = ["required"=>":attribute 是必填項目"]; 
-        if(auth()->user()->role !=0){
-           return response("你使用的身分非民眾，不得建立需求表資料！",401);
-        }
-        $data = $request->all();
-        $validator = Validator::make($data,[
-            "relation"=>"required",
-            "company_id"=>"required|integer",
-            "name"=>"required",
-            "birth_date"=>"required",
-            "address"=>"required",
-            "phone"=>"required",
-            "service_time"=>"required",
-            "start_date"=>"required",
-            "start_time"=>"required",
-            "use_time"=>"required",
-            "CDR"=>"numeric",
-            "mobility"=>Rule::in(['可行走','使用輔具行走','坐輪椅移位','臥床']),
-            "times"=>Rule::in([1,2,3,4,5,6,7]),
-            "is_meal_pre"=>"boolean",
-            "is_accom_pre"=>"boolean",
-            "is_safecare_pre"=>"boolean",
-            "is_workcare_pre"=>"boolean",
-            "is_medicine_pre"=>"boolean",
-            "is_activity_pre"=>"boolean",
-            "is_commissioned"=>"boolean"
-        ],$messages);
-        if($validator->fails()){
-            return response($validator->errors(),400);
-        }
-        //從attendees表中新增一筆被照顧者記錄
-        DB::table("attendees")->insert(['name'=>$data["name"],
-                                        'birth_date'=>$data["birth_date"],
-                                        'address'=>$data["address"],
-                                        'phone'=>$data["phone"],
-                                        'language'=>array_key_exists("language",$data)?$data["language"]:"國語",
-                                        'mobility'=>array_key_exists("mobility",$data)?$data["mobility"]:"可行走",
-                                        'CDR'=>array_key_exists("CDR",$data)?$data["CDR"]:'0',
-                                        'create_date'=>now(),'modified_date'=>now()]);
-        $attendee_id = DB::select('select id from attendees order by create_date desc limit 1')[0]->id;
-        //從care_items表中新增一筆服務需求+預約記錄
-        DB::table("care_items")->insert(['service_time'=>$data["service_time"],
-                                         'start_date'=>$data["start_date"],
-                                         'start_time'=>$data["start_time"],
-                                         'use_time'=>$data["use_time"],
-                                         'daily_care'=>array_key_exists("daily_care",$data)?$data["daily_care"]:null,
-                                        'is_meal_pre'=>array_key_exists("is_meal_pre",$data)?$data["is_meal_pre"]:false,
-                                         'is_accom_pre'=>array_key_exists("is_accom_pre",$data)?$data["is_accom_pre"]:false,
-                                        'is_safecare_pre'=>array_key_exists("is_safecare_pre",$data)?$data["is_safecare_pre"]:false,
-                                        'is_workcare_pre'=>array_key_exists("is_workcare_pre",$data)?$data["is_workcare_pre"]:false,
-                                        'is_medicine_pre'=>array_key_exists("is_medicine_pre",$data)?$data["is_medicine_pre"]:false,
-                                        'is_activity_pre'=>array_key_exists("is_activity_pre",$data)?$data["is_activity_pre"]:false,
-                                        'other'=>array_key_exists("other",$data)?$data["other"]:false,
-                                        'create_date'=>now(),'modified_date'=>now()]);
-         $careitem_id = DB::select('select id from care_items order by create_date desc limit 1')[0]->id;
-         //從applications表中新增一筆需求表記錄
-         DB::table("applications")->insert(['user_id'=>auth()->user()->id,
-                                         'attendee_id'=>$attendee_id,
-                                         'careitem_id'=>$careitem_id,
-                                         'relation'=>$data["relation"],
-                                         'is_commissioned'=>array_key_exists("is_commissioned",$data)?$data["is_commissioned"]:false,
-                                         'company_id'=>$data["company_id"],
-                                         'alternate_company_id'=>array_key_exists("alternate_company_id",$data)?$data["alternate_company_id"]:null,
-                                         'create_date'=>now(),'modified_date'=>now()]);
-            return response()->json(["message" => "需求表資料新增成功！",],201);
-        }
-    public function update(Request $request, string $id)
     {
         $messages = ["required"=>":attribute 是必填項目"]; 
         if(auth()->user()->role !=0){
-           return response("你使用的身分非民眾，不得建立需求表資料！",401);
+          return response(["message" =>"你使用的身分非民眾，不得建立需求表資料！"],401);
         }
         $data = $request->all();
-        $validator = Validator::make($data,[
-            "company_id"=>"integer",
-            "CDR"=>"numeric",
-            "mobility"=>Rule::in(['可行走','使用輔具行走','坐輪椅移位','臥床']),
-            "times"=>Rule::in([1,2,3,4,5,6,7]),
-            "is_meal_pre"=>"boolean",
-            "is_accom_pre"=>"boolean",
-            "is_safecare_pre"=>"boolean",
-            "is_workcare_pre"=>"boolean",
-            "is_medicine_pre"=>"boolean",
-            "is_activity_pre"=>"boolean",
-            "is_commissioned"=>"boolean"
+        if(!(array_key_exists("patient",$data)) ||!(array_key_exists("application",$data))||
+        !(array_key_exists("care_item",$data))
+        ){
+            return response(["message" => "需求表資料缺少patient、application、care_item項目，請重新輸入！"],422);
+        }
+        $patient = $data["patient"];
+        $application =$data["application"];
+        $care_item =$data["care_item"];
+        //驗證資料
+        $validator_patient = Validator::make($patient,[
+             "name"=>"required",
+             "gender"=>'required|in:男,女',
+             "birth_date"=>"required|date",
+             "phone"=>['required', 'regex:/^09[0-9]{8}$/'],
+             "mobility"=>Rule::in(['可行走','使用輔具行走','坐輪椅移位','臥床']),
+             "diagnosed"=>"boolean",
+             "CDR"=>"numeric|in:0,0.5,1,2,3",
+             "address_city"=>"required",
+             "address_district"=>"required",
+             "address_detail"=>"required"],$messages);
+        if($validator_patient->fails()){
+            return response($validator_patient->errors(),400);
+        }
+        $validator_application = Validator::make($application,[
+            "user_name"=>"required",
+            "relation"=>"required",
+            "selected_vendor_id"=>"numeric",
+            "status"=>"required|numeric|in:1,2,3,4,5,6",
+            "user_phone"=>"required",
+            "carer_id"=>"numeric"
+            ],$messages);
+       if($validator_application->fails()){
+           return response($validator_application->errors(),400);
+       }
+       $validator_care_item = Validator::make($care_item,[
+        "safety"=>"boolean",
+        "outdoor"=>"boolean",
+        "mediciation"=>"boolean",
+        "duration"=>"required|numeric",
+        "start_date"=>"required|date",
+        "start_time"=>"required|date_format:H:i:s",
+        "frequency"=>"required",
+        "period"=>"required",
         ],$messages);
-        if($validator->fails()){
-            return response($validator->errors(),400);
+        if($validator_care_item->fails()){
+            return response($validator_care_item->errors(),400);
+        }
+        if(array_key_exists("carer_id",$application)){
+            $db_carer_data = DB::select('select id from carers where id = ?',[$application["carer_id"]]);
+            if(count($db_carer_data) == 0){
+                return response()->json(["message"=>"你所尋找的陪伴員資料找不到或是已刪除"],404); 
+            }
+        }
+        //從patients表中新增一筆被照顧者記錄
+        $patient_id=DB::table("patients")->insertGetId(['name'=>$patient["name"],
+                                        'gender'=>$patient["gender"],
+                                        'birth_date'=>$patient["birth_date"],
+                                        'phone'=>$patient["phone"],                                                               
+                                        'languages'=>array_key_exists("languages",$patient)?$patient["languages"]:"國語",
+                                        'indigenous_type'=>array_key_exists("indigenous_type",$patient)?$patient["indigenous_type"]:null,
+                                        'mobility'=>array_key_exists("mobility",$patient)?$patient["mobility"]:"可行走",
+                                        'diagnosed'=>array_key_exists("diagnosed",$patient)?$patient["diagnosed"]:false,
+                                        'level'=>array_key_exists("level",$patient)?$patient["level"]:null,
+                                        'CDR'=>array_key_exists("CDR",$patient)?$patient["CDR"]:'0',
+                                        'address_city'=>$patient["address_city"],
+                                        'address_district'=>$patient["address_district"],
+                                        'address_detail'=>$patient["address_detail"],
+                                        'create_date'=>now(),'modified_date'=>now()]);
+        //從care_items表中新增一筆需求項目+記錄
+        $careitem_id=DB::table("care_items")->insertGetId(['daily_care'=>array_key_exists("daily_care",$care_item)?$care_item["daily_care"]:null,
+                                        'safety'=>array_key_exists("safety",$care_item)?$care_item["safety"]:false,
+                                        'outdoor'=>array_key_exists("outdoor",$care_item)?$care_item["outdoor"]:false,
+                                        'medication'=>array_key_exists("medication",$care_item)?$care_item["medication"]:false,
+                                        'other'=>array_key_exists("other",$care_item)?$care_item["other"]:null,
+                                        'duration'=>$care_item["duration"],
+                                        'start_date'=>$care_item["start_date"],
+                                        'start_time'=>$care_item["start_time"],
+                                        'frequency'=>$care_item["frequency"],
+                                        'period'=>$care_item["period"],
+                                        'frequency_note'=>array_key_exists("frequency_note",$care_item)?$care_item["frequency_note"]:null,
+                                        'period_note'=>array_key_exists("period_note",$care_item)?$care_item["period_note"]:null,
+                                        'healthcertificate_answer'=>array_key_exists("healthcertificate_answer",$care_item)?$care_item["healthcertificate_answer"]:null,
+                                        'healthcertificate_files'=>array_key_exists("healthcertificate_files",$care_item)?$care_item["healthcertificate_files"]:null,                   
+                                        'create_date'=>now(),'modified_date'=>now()]);
+        //從applications表中新增一筆需求表記錄
+        DB::table("applications")->insert(['user_id'=>auth()->user()->id,
+                                        'user_name'=>$application["user_name"],
+                                        'status'=>$application["status"],
+                                        'patient_id'=>$patient_id,
+                                        'careitem_id'=>$careitem_id,
+                                        'carer_id'=>array_key_exists("carer_id",$application)?$application["carer_id"]:null,
+                                        'relation'=>$application["relation"],
+                                        'user_phone'=>$application["user_phone"],              
+                                        'selected_vendor_id'=>$application["selected_vendor_id"],
+                                        'create_date'=>now(),'modified_date'=>now()]);
+            return response()->json(["message" => "需求表資料新增成功！",],201);
+    }
+    public function update(Request $request, string $id)
+    {
+        $messages = ["required"=>":attribute 是必填項目"]; 
+        $data = $request->all();
+        if(!(array_key_exists("patient",$data)) ||!(array_key_exists("application",$data))||
+        !(array_key_exists("care_item",$data))
+        ){
+            return response("需求表資料缺少patient、application、care_item項目，請重新輸入！",422);
+        }
+        $patient = $data["patient"];
+        $application =$data["application"];
+        $care_item =$data["care_item"];
+        //驗證資料
+        $validator_patient = Validator::make($patient,[
+             "gender"=>'in:男,女',
+             "birth_date"=>"date",
+             "phone"=>'regex:/^09[0-9]{8}$/',
+             "mobility"=>Rule::in(['可行走','使用輔具行走','坐輪椅移位','臥床']),
+             "diagnosed"=>"boolean",
+             "CDR"=>"numeric|in:0,0.5,1,2,3",],$messages);
+        if($validator_patient->fails()){
+            return response($validator_patient->errors(),400);
+        }
+        $validator_application = Validator::make($application,[
+            "selected_vendor_id"=>"numeric",
+            "status"=>"numeric|in:1,2,3,4,5,6",
+            "carer_id"=>"numeric"
+            ],$messages);
+       if($validator_application->fails()){
+           return response($validator_application->errors(),400);
+       }
+       $validator_care_item = Validator::make($care_item,[
+        "safety"=>"boolean",
+        "outdoor"=>"boolean",
+        "mediciation"=>"boolean",
+        ],$messages);
+        if($validator_care_item->fails()){
+            return response($validator_care_item->errors(),400);
         }
         //檢查是否有該筆需求表紀錄
-        $application = DB::select('select attendee_id,careitem_id,relation,is_commissioned,company_id,alternate_company_id,company_id from applications where id=?',[$id]);
-        if(count($application) == 0){
-            return response()->json(["message"=>"你所編輯的民眾資料id為 {$id} 找不到"],404);
+        $db_application = DB::select('select user_id,user_name,user_phone,relation,status,patient_id,careitem_id,qualification_id,contract_id,carer_id,selected_vendor_id,service_id from applications where id=?',[$id]);
+        if(count($db_application) == 0){
+            return response()->json(["message"=>"你所編輯的申請表資料id為 {$id} 找不到"],404);
         }
-        $application = $application[0];
+        $db_application = $db_application[0];
+        //檢查是否有該筆陪伴員紀錄
+        if(array_key_exists("carer_id",$application)){
+            $db_carer_data = DB::select('select id from carers where id = ?',[$application["carer_id"]]);
+            if(count($db_carer_data) == 0){
+                return response()->json(["message"=>"你所尋找的陪伴員資料找不到或是已刪除"],404); 
+            }
+        }
         //更新applications表資料
         DB::table("applications")->where('id',$id)->update([
-            'relation'=>array_key_exists("relation",$data)? $data["relation"]:$application->relation,
-            'is_commissioned'=>array_key_exists("is_commissioned",$data)? $data["is_commissioned"]:$application->is_commissioned,
-            'company_id'=>array_key_exists("company_id",$data)? $data["company_id"]:$application->company_id,
-            'alternate_company_id'=>array_key_exists("alternate_company_id",$data)? $data["alternate_company_id"]:$application->alternate_company_id,
+            'relation'=>array_key_exists("relation",$application)? $application["relation"]:$db_application->relation,
+            'user_name'=>array_key_exists("user_name",$application)? $application["user_name"]:$db_application->user_name,
+            'status'=>array_key_exists("status",$application)? $application["status"]:$db_application->status,
+            'user_phone'=>array_key_exists("user_phone",$application)? $application["user_phone"]:$db_application->user_phone,
+            'selected_vendor_id'=>array_key_exists("selected_vendor_id",$application)? $application["selected_vendor_id"]:$db_application->selected_vendor_id,
+            'carer_id'=>array_key_exists("carer_id",$application)? $application["carer_id"]:$db_application->carer_id,
             'modified_date'=>now()]);
-        //更新attendees表資料
-        $attendees = DB::select('select name,birth_date,address,phone,language,mobility,CDR from attendees where id=?',[$application->attendee_id]);
-        if(count($attendees) == 0){
-            return response()->json(["message"=>"你所編輯的民眾資料id為 {$id} 找不到"],404);
+        //更新patients表資料
+        $db_patient = DB::select('select name,gender,birth_date,phone,languages,indigenous_type,mobility,
+                        diagnosed,level,CDR,address_city,address_district,address_detail from patients where id=?',[$db_application->patient_id]);
+        if(count($db_patient) == 0){
+            return response()->json(["message"=>"你所編輯的申請表資料id為 {$id} 找不到"],404);
         }
-        $attendees = $attendees[0];
-        DB::table("attendees")->where('id',$application->attendee_id)->update([
-            'name'=>array_key_exists("name",$data)? $data["name"]:$attendees->name,
-            'birth_date'=>array_key_exists("birth_date",$data)? $data["birth_date"]:$attendees->name,
-            'address'=>array_key_exists("address",$data)? $data["address"]:$attendees->address,
-            'phone'=>array_key_exists("phone",$data)? $data["phone"]:$attendees->phone,
-            'language'=>array_key_exists("language",$data)? $data["language"]:$attendees->language,
-            'mobility'=>array_key_exists("mobility",$data)? $data["mobility"]:$attendees->mobility,
-            'CDR'=>array_key_exists("CDR",$data)? $data["CDR"]:$attendees->CDR,
+        $db_patient = $db_patient[0];
+        DB::table("patients")->where('id',$db_application->patient_id)->update([
+            'name'=>array_key_exists("name",$patient)? $patient["name"]:$db_patient->name,
+            'gender'=>array_key_exists("gender",$patient)? $patient["gender"]:$db_patient->gender,
+            'birth_date'=>array_key_exists("birth_date",$patient)? $patient["birth_date"]:$db_patient->birth_date,
+            'phone'=>array_key_exists("phone",$patient)? $patient["phone"]:$db_patient->phone,
+            'languages'=>array_key_exists("languages",$patient)? $patient["languages"]:$db_patient->languages,
+            'indigenous_type'=>array_key_exists("indigenous_type",$patient)? $patient["indigenous_type"]:$db_patient->indigenous_type,
+            'mobility'=>array_key_exists("mobility",$patient)? $patient["mobility"]:$db_patient->mobility,
+            'diagnosed'=>array_key_exists("diagnosed",$patient)? $patient["diagnosed"]:$db_patient->diagnosed,
+            'level'=>array_key_exists("level",$patient)? $patient["level"]:$db_patient->level,
+            'CDR'=>array_key_exists("CDR",$patient)? $patient["CDR"]:$db_patient->CDR,
+            'address_city'=>array_key_exists("address_city",$patient)? $patient["address_city"]:$db_patient->address_city,
+            'address_district'=>array_key_exists("address_district",$patient)? $patient["address_district"]:$db_patient->address_district,
+            'address_detail'=>array_key_exists("address_detail",$patient)? $patient["address_detail"]:$db_patient->address_detail,
             'modified_date'=>now()]);
         //更新care_items表資料
-        $care_items = DB::select('select daily_care,is_meal_pre,is_accom_pre,is_safecare_pre,is_workcare_pre,is_medicine_pre,is_activity_pre,
-                                other,service_time,start_date,start_time,use_time,times from care_items where id=?',[$application->careitem_id]);
-        if(count($care_items) == 0){
-            return response()->json(["message"=>"你所編輯的民眾資料id為 {$id} 找不到"],404);
+        $db_care_items = DB::select('select daily_care,safety,outdoor,medication,other,duration,start_date,
+                                start_time,frequency,period,frequency_note,period_note,healthcertificate_answer,healthcertificate_files from care_items where id=?',[$db_application->careitem_id]);
+        if(count($db_care_items) == 0){
+            return response()->json(["message"=>"你所編輯的申請表資料id為 {$id} 找不到"],404);
         }
-        $care_items = $care_items[0];
-        DB::table("care_items")->where('id',$application->careitem_id)->update([
-            'daily_care'=>array_key_exists("daily_care",$data)? $data["daily_care"]:$care_items->daily_care,
-            'is_meal_pre'=>array_key_exists("is_meal_pre",$data)? $data["is_meal_pre"]:$care_items->is_meal_pre,
-            'is_accom_pre'=>array_key_exists("is_accom_pre",$data)? $data["is_accom_pre"]:$care_items->is_accom_pre,
-            'is_safecare_pre'=>array_key_exists("is_safecare_pre",$data)? $data["is_safecare_pre"]:$care_items->is_safecare_pre,
-            'is_workcare_pre'=>array_key_exists("is_workcare_pre",$data)? $data["is_workcare_pre"]:$care_items->is_workcare_pre,
-            'is_medicine_pre'=>array_key_exists("is_medicine_pre",$data)? $data["is_medicine_pre"]:$care_items->is_medicine_pre,
-            'is_activity_pre'=>array_key_exists("is_activity_pre",$data)? $data["is_activity_pre"]:$care_items->is_activity_pre,
-            'other'=>array_key_exists("other",$data)? $data["other"]:$care_items->other,
-            'service_time'=>array_key_exists("service_time",$data)? $data["service_time"]:$care_items->service_time,
-            'start_date'=>array_key_exists("start_date",$data)? $data["start_date"]:$care_items->start_date,
-            'start_time'=>array_key_exists("start_time",$data)? $data["start_time"]:$care_items->start_time,
-            'use_time'=>array_key_exists("use_time",$data)? $data["use_time"]:$care_items->use_time,
-            'times'=>array_key_exists("times",$data)? $data["times"]:$care_items->times,
+        $db_care_items = $db_care_items[0];
+        DB::table("care_items")->where('id',$db_application->careitem_id)->update([
+            'daily_care'=>array_key_exists("daily_care",$care_item)? $care_item["daily_care"]:$db_care_items->daily_care,
+            'safety'=>array_key_exists("safety",$care_item)? $care_item["safety"]:$db_care_items->safety,
+            'outdoor'=>array_key_exists("outdoor",$care_item)? $care_item["outdoor"]:$db_care_items->outdoor,
+            'medication'=>array_key_exists("medication",$care_item)? $care_item["medication"]:$db_care_items->medication,
+            'other'=>array_key_exists("other",$care_item)? $care_item["other"]:$db_care_items->other,
+            'duration'=>array_key_exists("duration",$care_item)? $care_item["duration"]:$db_care_items->duration,
+            'start_date'=>array_key_exists("start_date",$care_item)? $care_item["start_date"]:$db_care_items->start_date,
+            'start_time'=>array_key_exists("start_time",$care_item)? $care_item["start_time"]:$db_care_items->start_time,
+            'frequency'=>array_key_exists("frequency",$care_item)? $care_item["frequency"]:$db_care_items->frequency,
+            'period'=>array_key_exists("period",$care_item)? $care_item["period"]:$db_care_items->period,
+            'frequency_note'=>array_key_exists("frequency_note",$care_item)? $care_item["frequency_note"]:$db_care_items->frequency_note,
+            'period_note'=>array_key_exists("period_note",$care_item)? $care_item["period_note"]:$db_care_items->period_note,
+            'healthcertificate_answer'=>array_key_exists("healthcertificate_answer",$care_item)? $care_item["healthcertificate_answer"]:$db_care_items->healthcertificate_answer,
+            'healthcertificate_files'=>array_key_exists("healthcertificate_files",$care_item)? $care_item["healthcertificate_files"]:$db_care_items->healthcertificate_files,
             'modified_date'=>now()]);
         return response()->json(["message"=>"需求表資料編輯成功！"],200);
     }
     public function show(string $id)
     {
-        $application_datas = DB::select('select id,user_id,attendee_id,careitem_id,relation,is_commissioned,company_id,alternate_company_id from applications where id=?',[$id]);
-        if(count($application_datas) == 0){
-            return response()->json(["message"=>"你所尋找的需求表資料找不到"],404);     
+        $db_application_datas = DB::select('select id,user_id,user_name,user_phone,relation,status,patient_id,careitem_id,qualification_id,contract_id,carer_id,selected_vendor_id,service_id from applications where user_id = ? and id=?',[auth()->user()->id,$id]);
+        if(count($db_application_datas) == 0){
+            return response()->json([],200);
+            
         }
-        $application_data = $application_datas[0];
-        $attendee_data = DB::select("select name,birth_date,address,phone,language,mobility,CDR from attendees where id = ?",[$application_data->attendee_id])[0];
-        $application_data->name =$attendee_data->name;
-        $application_data->birth_date =$attendee_data->birth_date;
-        $application_data->address =$attendee_data->address;
-        $application_data->phone =$attendee_data->phone;
-        $application_data->language =$attendee_data->language;
-        $application_data->mobility =$attendee_data->mobility;
-        $application_data->CDR =$attendee_data->CDR;
-        $careitem_data = DB::select("select daily_care,is_meal_pre,is_accom_pre,
-        is_safecare_pre,is_workcare_pre,is_activity_pre,is_medicine_pre,other,service_time,start_date,start_time,use_time,times from care_items where id = ?",[$application_data->careitem_id])[0];
-        $application_data->daily_care =$careitem_data->daily_care;
-        $application_data->is_meal_pre =$careitem_data->is_meal_pre;
-        $application_data->is_accom_pre =$careitem_data->is_accom_pre;
-        $application_data->is_safecare_pre =$careitem_data->is_safecare_pre;
-        $application_data->is_workcare_pre =$careitem_data->is_workcare_pre;
-        $application_data->is_activity_pre =$careitem_data->is_activity_pre;
-        $application_data->is_medicine_pre =$careitem_data->is_medicine_pre;
-        $application_data->other =$careitem_data->other;
-        $application_data->service_time =$careitem_data->service_time;
-        $application_data->start_date =$careitem_data->start_date;
-        $application_data->start_time =$careitem_data->start_time;
-        $application_data->use_time =$careitem_data->use_time;
-        $application_data->times =$careitem_data->times;
+        $db_application_datas = $db_application_datas[0];
+        $application_data = [];
+        $application_data["id"] =$db_application_datas->id;
+        $patient_data = DB::select("select name,gender,birth_date,address_city,address_district,address_detail,phone,languages,indigenous_type,mobility,diagnosed,level,CDR from patients where id = ?",[$db_application_datas->patient_id])[0];
+        $patient_data->diagnosed = (bool)$patient_data->diagnosed;
+        $application_data["patient"] = $patient_data;
+        $application=[];
+        $application["user_name"]=$db_application_datas->user_name;
+        $application["user_phone"]=$db_application_datas->user_phone;
+        $application["relation"]=$db_application_datas->relation;
+        $application["status"]=$db_application_datas->status;
+        $application["qualification_id"]=$db_application_datas->qualification_id;
+        $application["contract_id"]=$db_application_datas->contract_id;
+        $application["carer_id"]=$db_application_datas->carer_id;
+        $application["selected_vendor_id"]=$db_application_datas->selected_vendor_id;
+        $application["service_id"]=$db_application_datas->service_id;
+        $application_data["application"] = $application;
+        $careitem_data = DB::select("select daily_care,safety,outdoor,
+            medication,other,duration,start_date,start_time,frequency,period,frequency_note,period_note,healthcertificate_answer,healthcertificate_files from care_items where id = ?",[$db_application_datas->careitem_id])[0];
+        $careitem_data->safety=(bool)$careitem_data->safety;
+        $careitem_data->outdoor=(bool)$careitem_data->outdoor;
+        $careitem_data->medication=(bool)$careitem_data->medication;
+        $careitem_data->safety=(bool)$careitem_data->safety;
+        $application_data["care_item"] = $careitem_data;
          return response()->json($application_data,200);
     }
     public function destroy(string $id)
     {
-        $application_datas = DB::select('select attendee_id,careitem_id from applications where id=?',[$id]);
-        if(count($application_datas) == 0){
+        $db_application = DB::select('select patient_id,careitem_id,qualification_id,contract_id,carer_id from applications where id=?',[$id]);
+        if(count($db_application) == 0){
             return response()->json(["message"=>"你所尋找的需求表資料找不到或是已刪除"],404);     
         }
-        $application_data = $application_datas[0];
-        DB::table("attendees")->where("id",$application_data->attendee_id)->delete();
-        DB::table("care_items")->where("id",$application_data->careitem_id)->delete();
+        $db_application = $db_application[0];
+        //檢查是否該申請表的user_id是否為本人
+        if($db_application->user_id != auth()->user()->id){
+            return response()->json(["message"=>"你欲刪除的申請表資料id為 {$id} 並非本人申請，請重新輸入！"],403);
+        }
+        DB::table("patients")->where("id",$db_application->patient_id)->delete();
+        DB::table("care_items")->where("id",$db_application->careitem_id)->delete();
         DB::table("applications")->where("id",$id)->delete();
         return response()->json(["message"=>"需求表資料刪除成功！"],202);
+    }
+    public function findApplicationsByCompany_id(string $id)
+    {
+        if(auth()->user()->role ==0){
+            return response(["message"=>"你使用的身分為民眾，不得查詢所有申請表資料！"],403);
+        }
+        $db_application_datas = DB::select('select id,user_id,user_name,user_phone,relation,status,patient_id,careitem_id,qualification_id,contract_id,carer_id,selected_vendor_id,service_id from applications where selected_vendor_id = ?',[$id]);
+        if(count($db_application_datas) == 0){
+            return response()->json(["message"=>"你所尋找的需求表資料找不到"],404);
+            
+        }
+        $application_datas = [];
+        foreach ($db_application_datas as $key => $value){
+            $application_data = [];
+            $application_data["id"] =$value->id;
+            $patient_data = DB::select("select name,gender,birth_date,address_city,address_district,address_detail,phone,languages,indigenous_type,mobility,diagnosed,level,CDR from patients where id = ?",[$value->patient_id])[0];
+            $patient_data->diagnosed = (bool)$patient_data->diagnosed;
+            $application_data["patient"] = $patient_data;
+            $application=[];
+            $application["user_name"]=$value->user_name;
+            $application["user_phone"]=$value->user_phone;
+            $application["relation"]=$value->relation;
+            $application["status"]=$value->status;
+            $application["qualification_id"]=$value->qualification_id;
+            $application["contract_id"]=$value->contract_id;
+            $application["carer_id"]=$value->carer_id;
+            $application["selected_vendor_id"]=$value->selected_vendor_id;
+            $application["service_id"]=$value->service_id;
+            $application_data["application"] = $application;
+            $careitem_data = DB::select("select daily_care,safety,outdoor,
+            medication,other,duration,start_date,start_time,frequency,period,frequency_note,period_note,healthcertificate_answer,healthcertificate_files from care_items where id = ?",[$value->careitem_id])[0];
+            $careitem_data->safety=(bool)$careitem_data->safety;
+            $careitem_data->outdoor=(bool)$careitem_data->outdoor;
+            $careitem_data->medication=(bool)$careitem_data->medication;
+            $careitem_data->safety=(bool)$careitem_data->safety;
+            $application_data["care_item"] = $careitem_data;
+            array_push($application_datas,$application_data);
+        }
+         return response()->json($application_datas,200);
+    }
+    public function findApplicationByCompany_idAndId(string $company_id,string $id)
+    {
+        if(auth()->user()->role ==0){
+            return response(["message"=>"你使用的身分為民眾，不得查詢所有申請表資料！"],403);
+        }
+        $db_application_data = DB::select('select id,user_id,user_name,user_phone,relation,status,patient_id,careitem_id,qualification_id,contract_id,carer_id,selected_vendor_id,service_id from applications where selected_vendor_id = ? and id=?',[$company_id,$id]);
+        if(count($db_application_data) == 0){
+            return response()->json(["message"=>"你所尋找的需求表資料找不到"],404);
+            
+        }
+        $db_application_data = $db_application_data[0];
+        $application_data = [];
+        $application_data["id"] =$db_application_data->id;
+        $patient_data = DB::select("select name,gender,birth_date,address_city,address_district,address_detail,phone,languages,indigenous_type,mobility,diagnosed,level,CDR from patients where id = ?",[$db_application_data->patient_id])[0];
+        $patient_data->diagnosed = (bool)$patient_data->diagnosed;
+        $application_data["patient"] = $patient_data;
+        $application=[];
+        $application["user_name"]=$db_application_data->user_name;
+        $application["user_phone"]=$db_application_data->user_phone;
+        $application["relation"]=$db_application_data->relation;
+        $application["status"]=$db_application_data->status;
+        $application["qualification_id"]=$db_application_data->qualification_id;
+        $application["contract_id"]=$db_application_data->contract_id;
+        $application["carer_id"]=$db_application_data->carer_id;
+        $application["selected_vendor_id"]=$db_application_data->selected_vendor_id;
+        $application["service_id"]=$db_application_data->service_id;
+        $application_data["application"] = $application;
+        $careitem_data = DB::select("select daily_care,safety,outdoor,
+        medication,other,duration,start_date,start_time,frequency,period,frequency_note,period_note,healthcertificate_answer,healthcertificate_files from care_items where id = ?",[$db_application_data->careitem_id])[0];
+        $careitem_data->safety=(bool)$careitem_data->safety;
+        $careitem_data->outdoor=(bool)$careitem_data->outdoor;
+        $careitem_data->medication=(bool)$careitem_data->medication;
+        $careitem_data->safety=(bool)$careitem_data->safety;
+        $application_data["care_item"] = $careitem_data;
+        return response()->json($application_data,200);
+    }
+    public function createServiceId(string $id){
+        if(auth()->user()->role !=1){
+            return response(["message"=>"你使用的身分非試辦單位，不得新增服務序號！"],403);
+        }
+        $company_id =DB::select('select id from companies where account = ? or phone=?',[auth()->user()->account,auth()->user()->phone])[0]->id;
+        $db_application_data = DB::select('select id from applications where selected_vendor_id = ? and id=?',[$company_id,$id]);
+        if(count($db_application_data) == 0){
+            return response()->json(["message"=>"你所尋找的需求表資料找不到，無法新增服務序號！"],404);
+        }
+        $letters = strtoupper(Str::random(3));
+        $firstPart = str_pad(rand(0, 99999999), 8, '0', STR_PAD_LEFT); 
+        $secondPart = str_pad(rand(0, 999), 3, '0', STR_PAD_LEFT);
+        $service_id=$letters.'-'.$firstPart .'--'.$secondPart;
+        DB::table("applications")->where('id',$id)->update([
+            'service_id'=>$service_id,
+            'status'=>'2',
+            'modified_date'=>now()]);
+        return response()->json(["message"=>"新增服務序號成功！","service_id"=>$service_id],200);
     }
 }
