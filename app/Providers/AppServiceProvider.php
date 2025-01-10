@@ -21,6 +21,6 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Passport::personalAccessTokensExpireIn(now()->addDays(1));
+        Passport::personalAccessTokensExpireIn(now()->addMinutes(10));
     }
 }

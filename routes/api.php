@@ -11,24 +11,39 @@ use App\Http\Controllers\ContractController;
 use App\Http\Controllers\QualificationController;
 use App\Http\Controllers\SigninController;
 use App\Http\Controllers\RecordController;
+use App\Http\Controllers\QuoteController;
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\UploadController;
 //開放的routes
 Route::post("register",[ApiController::class,"register"]);
 Route::post("login",[ApiController::class,"login"]);
 Route::post("setVerified",[ApiController::class,"setVerified"]);
+Route::post("companies/setVerified",[CompanyController::class,"setVerified"]);
 Route::post("carers/login",[CarerController::class,"login"]);
+Route::post("companies/login",[CompanyController::class,"login"]);
+Route::post("companies/register",[CompanyController::class,"register"]);
+Route::post("admins/login",[AdminController::class,"login"]);
+Route::post("admins/register",[AdminController::class,"register"]);
+Route::post("getnewtoken",[AuthController::class,"getNewToken"]);
+Route::get('upload', [UploadController::class, 'show']);
+Route::post('upload', [UploadController::class, 'uploadFile']);
 //被保護的routes
 Route::group(["middleware"=>["auth:api"]],function(){
     Route::get("profile",[ApiController::class,"profile"]);
     Route::get("logout",[ApiController::class,"logout"]);
     Route::put("update",[ApiController::class,"update"]);
     Route::delete("delete",[ApiController::class,"destory"]);
-    Route::get("checktoken",[ApiController::class,"checktoken"]);
+    Route::get("checktoken",[AuthController::class,"checktoken"]);
     //以下為督導端模組admins的routes
     Route::get("admins/people",[AdminController::class,"findAllPeople"]);
     Route::get("admins/people/accounts/{account}",[AdminController::class,"findPersonbyAccount"]);
     Route::get("admins/people/{id}",[AdminController::class,"findPersonbyId"]);
     Route::get("admins",[AdminController::class,"index"]);
-    Route::get("admins/{id}",[AdminController::class,"show"]);
+    Route::get("admins/id/{id}",[AdminController::class,"show"]);
+    Route::put("admins/update",[AdminController::class,"update"]);
+    Route::get("admins/profile",[AdminController::class,"profile"]);
+    Route::delete("admins/delete",[AdminController::class,"destory"]);
+    Route::get("admins/logout",[AdminController::class,"logout"]);
     //以下為需求書模組applications的routes
     Route::post("applications",[ApplicationController::class,"store"]);
     Route::get("applications",[ApplicationController::class,"index"]);
@@ -40,9 +55,13 @@ Route::group(["middleware"=>["auth:api"]],function(){
     Route::put("applications/service/{id}",[ApplicationController::class,"createServiceId"]);
     //以下為試辦單位端模組companies的routes
     Route::get("companies",[CompanyController::class,"index"]);
-    Route::get("companies/{gui}",[CompanyController::class,"findCompanyByGui"]);
+    Route::get("companies/gui/{gui}",[CompanyController::class,"findCompanyByGui"]);
     Route::get("companies/city/{city}",[CompanyController::class,"findCompanyByCity"]);
     Route::get("companies/id/{id}",[CompanyController::class,"findCompanyById"]);
+    Route::get("companies/profile",[CompanyController::class,"profile"]);
+    Route::put("companies/update",[CompanyController::class,"update"]);
+    Route::delete("companies/delete",[CompanyController::class,"destory"]);
+    Route::get("companies/logout",[CompanyController::class,"logout"]);
     //以下為陪伴員模組carers的routes
     Route::get("carers",[CarerController::class,"index"]);
     Route::get("carers/id/{id}",[CarerController::class,"show"]);
@@ -75,4 +94,9 @@ Route::group(["middleware"=>["auth:api"]],function(){
     Route::post("records/signin/{id}",[RecordController::class,"store"]);
     Route::put("records/signin/{id}",[RecordController::class,"update"]);
     Route::delete("records/signin/{id}",[RecordController::class,"destroy"]);
+    //以下為報價模組quotes的routes
+    Route::get("quotes/company/{id}",[QuoteController::class,"show"]);
+    Route::post("quotes/company/{id}",[QuoteController::class,"store"]);
+    Route::put("quotes/company/{id}",[QuoteController::class,"update"]);
+    Route::delete("quotes/company/{id}",[QuoteController::class,"destroy"]);
 });

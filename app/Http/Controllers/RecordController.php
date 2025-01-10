@@ -14,53 +14,7 @@ class RecordController extends Controller
 {
     public function store(Request $request,string $id)
     {
-        $messages = ["required"=>":attribute 是必填項目"];
-        $data = $request->all();
-        $validator_record = Validator::make($data,[
-            "fillin_date"=>"required|date",
-            "weekday"=>'required|numeric|in:1,2,3,4,5,6,7',
-            "service_time_start"=>"required",
-            "service_time_end"=>"required",
-        ],$messages);
-       if($validator_record->fails()){
-           return response($validator_record->errors(),400);
-       }
-       $signin_from_db = DB::select('select id,record_id from signins where id=?',[$id]);
-       //檢查是否有該筆打卡表紀錄
-       if(count($signin_from_db)== 0){
-            return response()->json(["message"=>"打卡資料不存在，請重新輸入！"],404);
-        }
-        $signin_from_db=$signin_from_db[0];
-        if($signin_from_db->record_id!=null){
-            return response()->json(["message"=>"你的個案服務紀錄資料已建立，請重新輸入！"],409);
-        }
-        $record_id=DB::table("records")->insertGetId([
-            'fillin_date'=>$data["fillin_date"],
-            'weekday'=>$data["weekday"],
-            'service_time_start'=>$data["service_time_start"],
-            'service_time_end'=>$data["service_time_end"],
-            'serivice_eating'=>array_key_exists('serivice_eating', $data)?$data["serivice_eating"]:null,
-            'serivice_bathing'=>array_key_exists('serivice_bathing', $data)?$data["serivice_bathing"]:null,
-            'service_dressing'=>array_key_exists('service_dressing', $data)?$data["service_dressing"]:null,
-            'service_toileting'=>array_key_exists('service_toileting', $data)?$data["service_toileting"]:null,
-            'service_hygiene'=>array_key_exists('service_hygiene', $data)?$data["service_hygiene"]:null,
-            'service_shifting'=>array_key_exists('service_shifting', $data)?$data["service_shifting"]:null,
-            'service_walking'=>array_key_exists('service_walking', $data)?$data["service_walking"]:null,
-            'service_stair'=>array_key_exists('service_stair', $data)?$data["service_stair"]:null,
-            'service_outing'=>array_key_exists('service_outing', $data)?$data["service_outing"]:null,
-            'service_treatment'=>array_key_exists('service_treatment', $data)?$data["service_treatment"]:null,
-            'service_companionship'=>array_key_exists('service_companionship', $data)?$data["service_companionship"]:null,
-            'other_services'=>array_key_exists('other_services', $data)?$data["other_services"]:null,
-            'user_signature'=>array_key_exists('user_signature', $data)?$data["user_signature"]:null,
-            'special_matters'=>array_key_exists('special_matters', $data)?$data["special_matters"]:null,
-            'service_hour'=>array_key_exists('service_hour', $data)?$data["service_hour"]:null,
-            'carer_signature'=>array_key_exists('carer_signature', $data)?$data["carer_signature"]:null,
-            'admin_signature'=>array_key_exists('admin_signature', $data)?$data["admin_signature"]:null,
-            'create_date'=>now(),'modified_date'=>now()]);
-        DB::table("signins")->where('id',$id)->update([
-                'record_id'=>$record_id,
-                'modified_date'=>now()]);
-      return response()->json(["message"=>"個案服務紀錄資料建立成功！"],201);
+        
     }
     public function update(Request $request, string $id)
     {

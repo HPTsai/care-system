@@ -7,11 +7,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Carbon\Carbon;
 class ApplicationController extends Controller
 {
     public function index()
     {
-        $db_application_datas = DB::select('select id,user_id,user_phone,user_name,relation,status,patient_id,careitem_id,qualification_id,contract_id,carer_id,selected_vendor_id,service_id from applications where user_id = ?',[auth()->user()->id]);
+        $db_application_datas = DB::select('select * from applications where user_id = ?',[auth()->user()->id]);
         if(count($db_application_datas) == 0){
             return response()->json([],200);
             
@@ -28,11 +29,14 @@ class ApplicationController extends Controller
             $application["user_phone"]=$value->user_phone;
             $application["relation"]=$value->relation;
             $application["status"]=$value->status;
+            $application["from"]=$value->from;
+            $application["service_times"]=$value->service_times;
             $application["qualification_id"]=$value->qualification_id;
             $application["contract_id"]=$value->contract_id;
             $application["carer_id"]=$value->carer_id;
             $application["selected_vendor_id"]=$value->selected_vendor_id;
             $application["service_id"]=$value->service_id;
+            $application["create_date"]=Carbon::parse($value->create_date)->format('Y-m-d');
             $application_data["application"] = $application;
             $careitem_data = DB::select("select daily_care,safety,outdoor,
             medication,other,duration,start_date,start_time,frequency,period,frequency_note,period_note,healthcertificate_answer,healthcertificate_files from care_items where id = ?",[$value->careitem_id])[0];
@@ -80,8 +84,10 @@ class ApplicationController extends Controller
             "relation"=>"required",
             "selected_vendor_id"=>"numeric",
             "status"=>"required|numeric|in:1,2,3,4,5,6",
+            "from"=>"required|numeric|in:1,2",
             "user_phone"=>"required",
-            "carer_id"=>"numeric"
+            "carer_id"=>"numeric",
+            "service_times"=>"numeric|min:0"
             ],$messages);
        if($validator_application->fails()){
            return response($validator_application->errors(),400);
@@ -137,9 +143,11 @@ class ApplicationController extends Controller
                                         'healthcertificate_files'=>array_key_exists("healthcertificate_files",$care_item)?$care_item["healthcertificate_files"]:null,                   
                                         'create_date'=>now(),'modified_date'=>now()]);
         //從applications表中新增一筆需求表記錄
-        DB::table("applications")->insert(['user_id'=>auth()->user()->id,
+        $application_id=DB::table("applications")->insertGetId(['user_id'=>auth()->user()->id,
                                         'user_name'=>$application["user_name"],
                                         'status'=>$application["status"],
+                                        'from'=>$application["from"],
+                                        'service_times'=>array_key_exists("service_times",$application)?$application["service_times"]:0,
                                         'patient_id'=>$patient_id,
                                         'careitem_id'=>$careitem_id,
                                         'carer_id'=>array_key_exists("carer_id",$application)?$application["carer_id"]:null,
@@ -147,7 +155,7 @@ class ApplicationController extends Controller
                                         'user_phone'=>$application["user_phone"],              
                                         'selected_vendor_id'=>$application["selected_vendor_id"],
                                         'create_date'=>now(),'modified_date'=>now()]);
-            return response()->json(["message" => "需求表資料新增成功！",],201);
+            return response()->json(["message" => "需求表資料新增成功！","id"=>$application_id],201);
     }
     public function update(Request $request, string $id)
     {
@@ -175,6 +183,8 @@ class ApplicationController extends Controller
         $validator_application = Validator::make($application,[
             "selected_vendor_id"=>"numeric",
             "status"=>"numeric|in:1,2,3,4,5,6",
+            "from"=>"numeric|in:1,2",
+            "service_times"=>"numeric|min:0",
             "carer_id"=>"numeric"
             ],$messages);
        if($validator_application->fails()){
@@ -189,7 +199,7 @@ class ApplicationController extends Controller
             return response($validator_care_item->errors(),400);
         }
         //檢查是否有該筆需求表紀錄
-        $db_application = DB::select('select user_id,user_name,user_phone,relation,status,patient_id,careitem_id,qualification_id,contract_id,carer_id,selected_vendor_id,service_id from applications where id=?',[$id]);
+        $db_application = DB::select('select user_id,user_name,user_phone,relation,status,`from`,service_times,patient_id,careitem_id,qualification_id,contract_id,carer_id,selected_vendor_id,service_id from applications where id=?',[$id]);
         if(count($db_application) == 0){
             return response()->json(["message"=>"你所編輯的申請表資料id為 {$id} 找不到"],404);
         }
@@ -206,6 +216,8 @@ class ApplicationController extends Controller
             'relation'=>array_key_exists("relation",$application)? $application["relation"]:$db_application->relation,
             'user_name'=>array_key_exists("user_name",$application)? $application["user_name"]:$db_application->user_name,
             'status'=>array_key_exists("status",$application)? $application["status"]:$db_application->status,
+            'from'=>array_key_exists("from",$application)? $application["from"]:$db_application->from,
+            'service_times'=>array_key_exists("service_times",$application)?$application["service_times"]:$db_application->service_times,
             'user_phone'=>array_key_exists("user_phone",$application)? $application["user_phone"]:$db_application->user_phone,
             'selected_vendor_id'=>array_key_exists("selected_vendor_id",$application)? $application["selected_vendor_id"]:$db_application->selected_vendor_id,
             'carer_id'=>array_key_exists("carer_id",$application)? $application["carer_id"]:$db_application->carer_id,
@@ -259,7 +271,7 @@ class ApplicationController extends Controller
     }
     public function show(string $id)
     {
-        $db_application_datas = DB::select('select id,user_id,user_name,user_phone,relation,status,patient_id,careitem_id,qualification_id,contract_id,carer_id,selected_vendor_id,service_id from applications where user_id = ? and id=?',[auth()->user()->id,$id]);
+        $db_application_datas = DB::select('select * from applications where user_id = ? and id=?',[auth()->user()->id,$id]);
         if(count($db_application_datas) == 0){
             return response()->json([],200);
             
@@ -275,11 +287,14 @@ class ApplicationController extends Controller
         $application["user_phone"]=$db_application_datas->user_phone;
         $application["relation"]=$db_application_datas->relation;
         $application["status"]=$db_application_datas->status;
+        $application["from"]=$db_application_datas->from;
+        $application["service_times"]=$db_application_datas->service_times;
         $application["qualification_id"]=$db_application_datas->qualification_id;
         $application["contract_id"]=$db_application_datas->contract_id;
         $application["carer_id"]=$db_application_datas->carer_id;
         $application["selected_vendor_id"]=$db_application_datas->selected_vendor_id;
         $application["service_id"]=$db_application_datas->service_id;
+        $application["create_date"]=Carbon::parse($db_application_datas->create_date)->format('Y-m-d');
         $application_data["application"] = $application;
         $careitem_data = DB::select("select daily_care,safety,outdoor,
             medication,other,duration,start_date,start_time,frequency,period,frequency_note,period_note,healthcertificate_answer,healthcertificate_files from care_items where id = ?",[$db_application_datas->careitem_id])[0];
@@ -292,7 +307,7 @@ class ApplicationController extends Controller
     }
     public function destroy(string $id)
     {
-        $db_application = DB::select('select patient_id,careitem_id,qualification_id,contract_id,carer_id from applications where id=?',[$id]);
+        $db_application = DB::select('select patient_id,careitem_id,qualification_id,contract_id,carer_id,user_id from applications where id=?',[$id]);
         if(count($db_application) == 0){
             return response()->json(["message"=>"你所尋找的需求表資料找不到或是已刪除"],404);     
         }
@@ -311,16 +326,22 @@ class ApplicationController extends Controller
         if(auth()->user()->role ==0){
             return response(["message"=>"你使用的身分為民眾，不得查詢所有申請表資料！"],403);
         }
-        $db_application_datas = DB::select('select id,user_id,user_name,user_phone,relation,status,patient_id,careitem_id,qualification_id,contract_id,carer_id,selected_vendor_id,service_id from applications where selected_vendor_id = ?',[$id]);
+        $db_application_datas = DB::select('select * from applications where selected_vendor_id = ?',[$id]);
         if(count($db_application_datas) == 0){
             return response()->json(["message"=>"你所尋找的需求表資料找不到"],404);
             
         }
         $application_datas = [];
+       
         foreach ($db_application_datas as $key => $value){
             $application_data = [];
             $application_data["id"] =$value->id;
-            $patient_data = DB::select("select name,gender,birth_date,address_city,address_district,address_detail,phone,languages,indigenous_type,mobility,diagnosed,level,CDR from patients where id = ?",[$value->patient_id])[0];
+            $patient_id=$value->patient_id;
+            $patient_data= DB::select("select name,gender,birth_date,address_city,address_district,address_detail,phone,languages,indigenous_type,mobility,diagnosed,level,CDR from patients where id = ?",[$patient_id]);
+            if(count($patient_data) ==0){
+                continue;
+            }
+            $patient_data = $patient_data[0];
             $patient_data->diagnosed = (bool)$patient_data->diagnosed;
             $application_data["patient"] = $patient_data;
             $application=[];
@@ -328,11 +349,14 @@ class ApplicationController extends Controller
             $application["user_phone"]=$value->user_phone;
             $application["relation"]=$value->relation;
             $application["status"]=$value->status;
+            $application["from"]=$value->from;
+            $application["service_times"]=$value->service_times;
             $application["qualification_id"]=$value->qualification_id;
             $application["contract_id"]=$value->contract_id;
             $application["carer_id"]=$value->carer_id;
             $application["selected_vendor_id"]=$value->selected_vendor_id;
             $application["service_id"]=$value->service_id;
+            $application["create_date"]=Carbon::parse($value->create_date)->format('Y-m-d');
             $application_data["application"] = $application;
             $careitem_data = DB::select("select daily_care,safety,outdoor,
             medication,other,duration,start_date,start_time,frequency,period,frequency_note,period_note,healthcertificate_answer,healthcertificate_files from care_items where id = ?",[$value->careitem_id])[0];
@@ -350,7 +374,7 @@ class ApplicationController extends Controller
         if(auth()->user()->role ==0){
             return response(["message"=>"你使用的身分為民眾，不得查詢所有申請表資料！"],403);
         }
-        $db_application_data = DB::select('select id,user_id,user_name,user_phone,relation,status,patient_id,careitem_id,qualification_id,contract_id,carer_id,selected_vendor_id,service_id from applications where selected_vendor_id = ? and id=?',[$company_id,$id]);
+        $db_application_data = DB::select('select * from applications where selected_vendor_id = ? and id=?',[$company_id,$id]);
         if(count($db_application_data) == 0){
             return response()->json(["message"=>"你所尋找的需求表資料找不到"],404);
             
@@ -366,11 +390,14 @@ class ApplicationController extends Controller
         $application["user_phone"]=$db_application_data->user_phone;
         $application["relation"]=$db_application_data->relation;
         $application["status"]=$db_application_data->status;
+        $application["from"]=$db_application_data->from;
+        $application["service_times"]=$db_application_data->service_times;
         $application["qualification_id"]=$db_application_data->qualification_id;
         $application["contract_id"]=$db_application_data->contract_id;
         $application["carer_id"]=$db_application_data->carer_id;
         $application["selected_vendor_id"]=$db_application_data->selected_vendor_id;
         $application["service_id"]=$db_application_data->service_id;
+        $application["create_date"]=Carbon::parse($value->create_date)->format('Y-m-d');
         $application_data["application"] = $application;
         $careitem_data = DB::select("select daily_care,safety,outdoor,
         medication,other,duration,start_date,start_time,frequency,period,frequency_note,period_note,healthcertificate_answer,healthcertificate_files from care_items where id = ?",[$db_application_data->careitem_id])[0];

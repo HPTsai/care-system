@@ -9,15 +9,17 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use App\Models\User;
+use Carbon\Carbon;
 
 class CarerController extends Controller
 {
     public function index()
     {
-        $carers_from_db = DB::select('select id,certificate_id,company_id,name,nationality,phone,email,address,languages from carers');
+        $carers_from_db = DB::select('select id,certificate_id,company_id,name,nationality,phone,secondphone,email,address,languages from carers');
         if(count($carers_from_db) == 0){
             return response()->json([],200);
         }
@@ -34,6 +36,7 @@ class CarerController extends Controller
             $carers_data["name"]=$value->name;
             $carers_data["nationality"]=$value->nationality;
             $carers_data["phone"]=$value->phone;
+            $carers_data["secondphone"] =$value->secondphone;
             $carers_data["email"]=$value->email;
             $carers_data["address"]=$value->address;
             $carers_data["languages"]=$value->languages;
@@ -70,6 +73,7 @@ class CarerController extends Controller
                                     'name'=>$data["name"],
                                     'nationality'=>$data["nationality"],
                                     'phone'=>$data["phone"],
+                                    'secondphone'=>array_key_exists('secondphone', $data)?$data["secondphone"]:null,
                                     'email'=>array_key_exists('email', $data)?$data["email"]:null,
                                     'address'=>$data["address"],
                                     'languages'=>array_key_exists('languages', $data)?$data["languages"]:'國語',
@@ -100,31 +104,42 @@ class CarerController extends Controller
             return response($validator_user->errors(),400);
         }
         //取得user物件
-        $user = User::whereRaw('account = ?',[$user["account"]])->first();
-        if(!empty($user)){
+        $user_from_db = User::whereRaw('account = ?',[$user["account"]])->first();
+        if(!empty($user_from_db)){
             //如果user物件存在，檢查password是否正確
-            if(Hash::check($request->password, $user->password)){
-                $token = $user->createToken("mytoken")->accessToken;
+            if(Hash::check($user["password"], $user_from_db->password)){
+                $tokenResult = $user_from_db->createToken("mytoken");
+                $accessToken = $tokenResult->accessToken;
+                $refreshToken = Str::random(64);
+                $expiresAt = Carbon::now()->addDays(1);
+                // 插入資料到 oauth_refresh_tokens 表
+                DB::table('oauth_refresh_tokens')->insert([
+                'access_token_id' => $tokenResult->token->id, 
+                'id' => $refreshToken,
+                'expires_at' => $expiresAt,
+                'revoked' => false]);
                 return response()->json([
-                    "message" => "使用者登入成功！",
-                    "token" => $token,
-                ],200);
+                    "message" => "陪伴員登入成功！",
+                    "accessToken" => $accessToken,
+                    "refreshToken"=>$refreshToken
+                ],200)->cookie('accessToken', $accessToken, 10)->cookie('refreshToken', $refreshToken, 43200);
             }else{
                 return response()->json([
-                    "message" => "使用者密碼錯誤！",
+                    "message" => "陪伴員密碼錯誤！",
                 ],401);
             }
         }else{
             return response()->json([
-                "message" => "使用者不存在！",
+                "message" => "陪伴員不存在！",
             ],401);
         }
     }
     public function logout()
     {
+        DB::table("oauth_refresh_tokens")->where('access_token_id',auth()->user()->token()->id)->delete();
         auth()->user()->token()->delete();
         return response()->json(
-        ["message" => "使用者登出成功！"]
+        ["message" => "陪伴員登出成功！"]
         ,200);
     }
     public function update(Request $request, string $id)
@@ -138,8 +153,8 @@ class CarerController extends Controller
            return response($validator_carer->errors(),400);
        }
        //確認資料是否存在
-       $company_id = DB::select('select id from companies where account = ? or phone=?',[auth()->user()->account,auth()->user()->phone])[0]->id;
-       $carer_from_db = DB::select('select name,certificate_id,nationality,phone,email,address,languages from carers where id = ? and company_id=?',[$id,$company_id]);
+       $company_id = DB::select('select id from companies where account = ?',[auth()->user()->account])[0]->id;
+       $carer_from_db = DB::select('select name,certificate_id,nationality,phone,secondphone,email,address,languages from carers where id = ? and company_id=?',[$id,$company_id]);
        if(count($carer_from_db) == 0){
         return response()->json(["message"=>"陪伴員資料不存在或是非本試辦單位員工，無法編輯陪伴員資料！"],404);
         }
@@ -150,6 +165,7 @@ class CarerController extends Controller
             'name'=>array_key_exists("name",$data)? $data["name"]:$carer_from_db->name,
             'nationality'=>array_key_exists("nationality",$data)? $data["nationality"]:$carer_from_db->nationality,
             'phone'=>array_key_exists("phone",$data)? $data["phone"]:$carer_from_db->phone,
+            'secondphone'=>array_key_exists('secondphone', $data)?$data["secondphone"]:$carer_from_db->secondphone,
             'email'=>array_key_exists("email",$data)? $data["email"]:$carer_from_db->email,
             'address'=>array_key_exists("address",$data)? $data["address"]:$carer_from_db->address,
             'languages'=>array_key_exists("languages",$data)? $data["languages"]:$carer_from_db->languages,
@@ -162,7 +178,7 @@ class CarerController extends Controller
             return response()->json(["message"=>"陪伴員資料編輯成功！"],200);
     }
     public function profile(){
-        $carer_from_db = DB::select('select id,certificate_id,company_id,name,nationality,phone,email,address,languages from carers where certificate_id=?',[auth()->user()->account])[0];
+        $carer_from_db = DB::select('select id,certificate_id,company_id,name,nationality,phone,secondphone,email,address,languages from carers where certificate_id=?',[auth()->user()->account])[0];
         $carer_from_db->user_id = auth()->user()->id;
         $carer_from_db->role="陪伴員";
         $carer_from_db->account=$carer_from_db->certificate_id;
@@ -170,7 +186,7 @@ class CarerController extends Controller
     }
     public function show(string $id)
     {
-        $carers_from_db = DB::select('select id,certificate_id,company_id,name,nationality,phone,email,address,languages from carers where id=?',[$id]);
+        $carers_from_db = DB::select('select id,certificate_id,company_id,name,nationality,phone,secondphone,email,address,languages from carers where id=?',[$id]);
         if(count($carers_from_db) == 0){
             return response()->json([],200);
         }
@@ -201,7 +217,7 @@ class CarerController extends Controller
     }
     public function findCarersByCompany_id(string $id)
     {
-        $carers_from_db = DB::select('select id,certificate_id,company_id,name,nationality,phone,email,address,languages from carers where company_id=?',[$id]);
+        $carers_from_db = DB::select('select id,certificate_id,company_id,name,nationality,phone,secondphone,email,address,languages from carers where company_id=?',[$id]);
         if(count($carers_from_db) == 0){
             return response()->json([],200);
         }
@@ -218,6 +234,7 @@ class CarerController extends Controller
             $carers_data["name"]=$value->name;
             $carers_data["nationality"]=$value->nationality;
             $carers_data["phone"]=$value->phone;
+            $carers_data["secondphone"] =$value->secondphone;
             $carers_data["email"]=$value->email;
             $carers_data["address"]=$value->address;
             $carers_data["languages"]=$value->languages;
